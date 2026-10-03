@@ -18,8 +18,14 @@ main.py 和 analyzer 完全不用改，因為它們只認得 SourceLoader 這個
 """
 
 import os
+import atexit
+import shutil
+import subprocess
+import tempfile
 from abc import ABC, abstractmethod
 from typing import List
+
+
 
 # 目前支援分析的原始碼副檔名。
 # 現在只有 .py 真正有 analyzer 支援，其他語言先放在註解裡示意，
@@ -80,16 +86,62 @@ class DirectorySourceLoader(SourceLoader):
 
 class GitRepoSourceLoader(SourceLoader):
     """
-    來源是 git repo（尚未實作，先卡位）。
-
-    之後實作大概會長這樣：
-      1. clone 或 fetch repo 到暫存資料夾
-      2. 直接重用 DirectorySourceLoader 去掃那個暫存資料夾
-    main.py 那邊完全不用改任何呼叫方式，因為對外都是同一個 load() 介面。
-    """
-
+        來源是 git repo。
+    
+        流程：
+          1. 用 `git clone` 把 repo clone 到一個暫存資料夾（淺層 clone，只抓最新版本）
+          2. 直接重用 DirectorySourceLoader 去掃那個暫存資料夾
+        對外行為跟其他 SourceLoader 完全一樣，main.py 不需要知道
+        「這份原始碼其實是從遠端 clone 下來的」這個實作細節。
+    
+        擴充備註：
+        目前只會 clone 預設分支（repo 的 HEAD）。如果未來要支援
+        「分析指定分支/指定 commit」，可以在 __init__ 多加一個
+        branch 參數，clone 時加上 `--branch <branch>` 即可，
+        不影響其他地方的呼叫方式。
+        """
+    
+        # 暫存資料夾存活時間跟整個程式一樣長（分析階段還需要讀取檔案內容），
+        # 所以不是 clone 完就刪，而是註冊到 atexit，程式正常結束時才清除。
+    def __init__(self, source: str):
+        super().__init__(source)
+        self._temp_dir: Optional[str] = None
+    
     def load(self) -> List[str]:
-        raise NotImplementedError("Git repo 來源尚未實作")
+        self._temp_dir = tempfile.mkdtemp(prefix="paper_git_repo_")
+        atexit.register(self._cleanup)
+    
+        self._clone_repo()
+        # clone 下來就是一份完整的本機資料夾，完全重用既有邏輯，
+        # 不用重新寫一套「怎麼找程式碼檔案」的規則。
+        directory_loader = DirectorySourceLoader(self._temp_dir)
+        return directory_loader.load()
+    
+    def _clone_repo(self) -> None:
+        command = ["git", "clone", "--depth", "1", self.source, self._temp_dir]
+        try:
+            subprocess.run(
+                command,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+        except FileNotFoundError as e:
+            raise RuntimeError("找不到 git 指令，請確認系統已安裝 git") from e
+        except subprocess.TimeoutExpired as e:
+            raise RuntimeError(
+                f"git clone 逾時（超過 120 秒）：{self.source}，"
+                "請確認網路狀況或儲存庫大小"
+            ) from e
+        except subprocess.CalledProcessError as e:
+            raise RuntimeError(
+                f"git clone 失敗：{self.source}\n{e.stderr.strip()}"
+            ) from e
+    
+    def _cleanup(self) -> None:
+        if self._temp_dir and os.path.isdir(self._temp_dir):
+            shutil.rmtree(self._temp_dir, ignore_errors=True)
 
 
 def get_source_loader(source: str) -> SourceLoader:

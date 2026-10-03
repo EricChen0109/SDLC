@@ -17,6 +17,7 @@ main.py
 
 import argparse
 import os
+import sys
 from typing import List
 
 from core.base import Feature
@@ -71,40 +72,78 @@ def parse_args() -> argparse.Namespace:
         default="./output",
         help="輸出文件存放的資料夾，預設為 ./output",
     )
+    parser.add_argument(
+            "--debug",
+            action="store_true",
+            help="發生錯誤時顯示完整 traceback，方便除錯（預設只顯示簡短錯誤訊息）",
+        )
     return parser.parse_args()
 
 
-def run_feature(feature: Feature, file_paths: List[str], source: str, output_dir: str) -> None:
+def run_feature(
+    feature: Feature, file_paths: List[str], source: str, output_dir: str, debug: bool
+) -> bool:
+    """
+    執行單一功能。回傳是否成功，讓呼叫端可以統計「跑了幾個、成功幾個」。
+
+    這裡只攔截「執行這個功能」過程中的例外，刻意不攔截來源讀取階段的錯誤
+    （那個在 main() 裡更早就攔截掉了），讓錯誤處理的責任範圍清楚分開：
+    - 來源讀不到：屬於「這次執行整體就不該繼續」的錯誤
+    - 單一功能跑壞：屬於「這個功能有問題，但其他功能應該還有機會跑」的錯誤
+    """
     print(f"[執行中] {feature.display_name} ...")
+    try:
+        analysis_result = feature.analyzer.analyze(file_paths)
+        analysis_result.source_path = source  # analyzer 只知道檔案清單，來源路徑由這裡補上
 
-    analysis_result = feature.analyzer.analyze(file_paths)
-    analysis_result.source_path = source  # analyzer 只知道檔案清單，來源路徑由這裡補上
+        output_path = os.path.join(output_dir, f"{feature.key}.docx")
+        actual_path = feature.generator.generate(analysis_result, output_path)
 
-    output_path = os.path.join(output_dir, f"{feature.key}.docx")
-    actual_path = feature.generator.generate(analysis_result, output_path)
-
-    print(f"[完成] {feature.display_name} → {actual_path}")
-
+        print(f"[完成] {feature.display_name} → {actual_path}")
+        return True
+    except Exception as e:
+        if debug:
+            raise
+        print(f"[錯誤] 「{feature.display_name}」執行失敗：{e}")
+        return False
 
 def main() -> None:
     args = parse_args()
     feature_lookup = build_feature_lookup()
 
-    os.makedirs(args.output_dir, exist_ok=True)
+    # 檔案清單只需要載入一次，多個功能可以共用同一份分析來源。
+    # 這裡的錯誤屬於「整次執行都無法繼續」的等級（路徑不存在、
+    # 副檔名不支援、git repo 尚未實作...），所以攔截後直接結束程式。
+    try:
+        file_paths = get_source_loader(args.source).load()
+    except (FileNotFoundError, ValueError, NotImplementedError) as e:
+        if args.debug:
+            raise
+        print(f"[錯誤] {e}")
+        sys.exit(1)
 
-    # 檔案清單只需要載入一次，多個功能可以共用同一份分析來源
-    file_paths = get_source_loader(args.source).load()
     if not file_paths:
         print(f"[警告] 在 {args.source} 底下找不到任何支援的原始碼檔案")
         return
+
+    # 確定來源沒問題、真的有東西要分析了，才建立輸出資料夾，
+    # 避免執行失敗時在使用者的專案裡留下一個空的 output/ 資料夾
+    os.makedirs(args.output_dir, exist_ok=True)
 
     if args.doc:
         features_to_run = [feature_lookup[args.doc]]
     else:
         features_to_run = REGISTERED_FEATURES
 
+    success_count = 0
     for feature in features_to_run:
-        run_feature(feature, file_paths, args.source, args.output_dir)
+        if run_feature(feature, file_paths, args.source, args.output_dir, args.debug):
+            success_count += 1
+
+    print(f"\n完成 {success_count}/{len(features_to_run)} 個文件")
+    if success_count < len(features_to_run):
+        sys.exit(1)  # 讓外部腳本（例如CI）能偵測到「有功能失敗」
+
 
 
 if __name__ == "__main__":
