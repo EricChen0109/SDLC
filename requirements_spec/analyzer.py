@@ -17,6 +17,7 @@ from core.base import BaseAnalyzer
 from core.models import (
     AnalysisResult,
     ClassInfo,
+    CodeBlockInfo,
     FunctionInfo,
     ImportInfo,
     ModuleInfo,
@@ -26,6 +27,15 @@ from core.models import (
 FunctionNode = Union[ast.FunctionDef, ast.AsyncFunctionDef]
 
 
+def _is_docstring_node(node: ast.stmt) -> bool:
+    """判斷這個節點是不是「模組/函式/類別最開頭的 docstring 字串敘述」"""
+    return (
+        isinstance(node, ast.Expr)
+        and isinstance(node.value, ast.Constant)
+        and isinstance(node.value.value, str)
+    )
+    
+    
 class PythonAstAnalyzer(BaseAnalyzer):
     """針對 Python 原始碼的靜態分析器，核心是標準庫的 ast 模組"""
 
@@ -59,15 +69,32 @@ class PythonAstAnalyzer(BaseAnalyzer):
             line_count=len(source.splitlines()),
         )
 
+        # 用來暫存「連續的、非結構化」的頂層節點，
+        # 遇到 import/function/class 或掃完整個檔案時，就把暫存的這一串打包成一個 CodeBlockInfo
+        pending_nodes: List[ast.stmt] = []
+        
+        def flush_pending_block() -> None:
+            if not pending_nodes:
+                return
+            block = self._make_code_block(pending_nodes, source)
+            module_info.code_blocks.append(block)
+            pending_nodes.clear()
+            
         # 只走訪 tree.body（頂層節點），不用 ast.walk，
-        # 這樣才不會把「寫在函式內部的 import」誤判成模組層級的東西
-        for node in tree.body:
+        # 這樣才不會把「寫在函式內部的 import」誤判成模組層級的東西。
+        # 模組最開頭的 docstring（如果有）在 ast 裡也會是 tree.body[0] 的
+        # ast.Expr(ast.Constant(str))，這裡要特別跳過，不然會被誤判成程式碼區塊。
+        for index, node in enumerate(tree.body):
+            if index == 0 and module_info.module_docstring and _is_docstring_node(node):
+                continue
             if isinstance(node, ast.Import):
+                flush_pending_block()
                 for alias in node.names:
                     module_info.imports.append(
                         ImportInfo(module=alias.name, alias=alias.asname)
                     )
             elif isinstance(node, ast.ImportFrom):
+                flush_pending_block()
                 module_info.imports.append(
                     ImportInfo(
                         module=node.module or "",
@@ -75,19 +102,35 @@ class PythonAstAnalyzer(BaseAnalyzer):
                     )
                 )
             elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                module_info.functions.append(self._parse_function(node))
+                flush_pending_block()
+                module_info.functions.append(self._parse_function(node, source))
             elif isinstance(node, ast.ClassDef):
-                module_info.classes.append(self._parse_class(node))
-
+                flush_pending_block()
+                module_info.classes.append(self._parse_class(node, source))
+            else:
+                # 其他所有型態的頂層敘述（賦值、if、for、直接呼叫函式...）
+                # 先收集起來，等遇到下一個結構化節點，或掃完整個檔案時再打包
+                pending_nodes.append(node)
+        
+        flush_pending_block()
+        
         return module_info
 
-    def _parse_class(self, node: ast.ClassDef) -> ClassInfo:
+    def _make_code_block(self, nodes: List[ast.stmt], source: str) -> CodeBlockInfo:
+            """把一串連續的 ast 節點，打包成一個 CodeBlockInfo（含原始碼片段）"""
+            line_start = nodes[0].lineno
+            line_end = getattr(nodes[-1], "end_lineno", nodes[-1].lineno)
+            source_lines = source.splitlines()
+            code_text = "\n".join(source_lines[line_start - 1 : line_end])
+            return CodeBlockInfo(source_code=code_text, line_start=line_start, line_end=line_end)
+    
+    def _parse_class(self, node: ast.ClassDef,source:str) -> ClassInfo:
         methods = [
-            self._parse_function(item)
+            self._parse_function(item,source)
             for item in node.body
             if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef))
         ]
-        return ClassInfo(
+        class_info = ClassInfo(
             name=node.name,
             bases=[ast.unparse(base) for base in node.bases],
             docstring=ast.get_docstring(node),
@@ -96,9 +139,15 @@ class PythonAstAnalyzer(BaseAnalyzer):
             line_start=node.lineno,
             line_end=getattr(node, "end_lineno", node.lineno),
         )
+        # 存下原始碼片段，讓之後的 LLM enhancer 能在沒有 docstring 時，
+        # 讀這段程式碼內容去生成說明。放在 extra 裡，不影響既有欄位。
+        source_segment = ast.get_source_segment(source, node)
+        if source_segment:
+            class_info.extra["source_code"] = source_segment
+        return class_info
 
-    def _parse_function(self, node: FunctionNode) -> FunctionInfo:
-        return FunctionInfo(
+    def _parse_function(self, node: FunctionNode,source:str) -> FunctionInfo:
+        func_info = FunctionInfo(
             name=node.name,
             parameters=self._parse_parameters(node.args),
             return_type=ast.unparse(node.returns) if node.returns else None,
@@ -108,7 +157,11 @@ class PythonAstAnalyzer(BaseAnalyzer):
             line_start=node.lineno,
             line_end=getattr(node, "end_lineno", node.lineno),
         )
-
+        source_segment = ast.get_source_segment(source, node)
+        if source_segment:
+            func_info.extra["source_code"] = source_segment
+        return func_info
+    
     def _parse_parameters(self, args: ast.arguments) -> List[ParameterInfo]:
         """
         把 ast.arguments 轉成 ParameterInfo 清單。

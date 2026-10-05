@@ -83,6 +83,25 @@ class ImportInfo:
 
 
 @dataclass
+class CodeBlockInfo:
+    """
+    模組層級、沒有被封裝進 function/class 的程式碼片段
+    （例如 `if __name__ == "__main__":` 底下的執行邏輯、模組層級的變數賦值、
+    直接寫在檔案最外層的程式邏輯）。
+
+    這種程式碼靜態分析沒辦法知道「用途」是什麼，只能先把原始碼存起來，
+    之後交給 LLM 讀程式碼內容、理解並生成說明，放進 extra["llm_explanation"]。
+
+    連續好幾行這種「沒有結構」的敘述，會被合併成同一個 CodeBlockInfo
+    （而不是一行一個），這樣丟給 LLM 時脈絡比較完整，也比較省呼叫次數。
+    """
+    source_code: str
+    line_start: int
+    line_end: int
+    extra: Dict[str, Any] = field(default_factory=dict)
+    
+    
+@dataclass
 class ModuleInfo:
     """一個檔案（模組）分析完的完整結果，是 analyzer 最終輸出的單位"""
     file_path: str
@@ -90,6 +109,7 @@ class ModuleInfo:
     imports: List[ImportInfo] = field(default_factory=list)
     functions: List[FunctionInfo] = field(default_factory=list)   # 只放「模組層級」的函式，類別內的在 classes[].methods
     classes: List[ClassInfo] = field(default_factory=list)
+    code_blocks: List[CodeBlockInfo] = field(default_factory=list)  # 沒有結構化的頂層程式碼片段
     line_count: int = 0
     extra: Dict[str, Any] = field(default_factory=dict)
 

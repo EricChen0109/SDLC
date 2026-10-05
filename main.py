@@ -21,6 +21,7 @@ import sys
 from typing import List
 
 from core.base import Feature
+from core.llm_enhancer import enhance_with_llm
 from core.source_loader import get_source_loader
 
 # ============================================================
@@ -95,6 +96,11 @@ def run_feature(
     try:
         analysis_result = feature.analyzer.analyze(file_paths)
         analysis_result.source_path = source  # analyzer 只知道檔案清單，來源路徑由這裡補上
+
+        # 要啟用 LLM 補充說明（補上沒寫 docstring 的函式/類別說明、
+        # 理解沒有結構化的程式碼區塊），把下面這行的註解拿掉即可。
+        # 記得先在 core/llm_client.py 設定好要用哪家供應商、並設定對應的 API key。
+        analysis_result = enhance_with_llm(analysis_result)
 
         output_path = os.path.join(output_dir, f"{feature.key}.docx")
         actual_path = feature.generator.generate(analysis_result, output_path)

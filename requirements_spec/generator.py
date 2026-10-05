@@ -22,7 +22,7 @@ from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
 
 from core.base import BaseGenerator
-from core.models import AnalysisResult, ClassInfo, FunctionInfo, ModuleInfo
+from core.models import AnalysisResult, ClassInfo, CodeBlockInfo,FunctionInfo, ModuleInfo
 
 
 class RequirementsSpecGenerator(BaseGenerator):
@@ -82,8 +82,31 @@ class RequirementsSpecGenerator(BaseGenerator):
             document.add_heading("類別", level=2)
             for cls in module.classes:
                 self._add_class_block(document, cls)
-
+        if module.code_blocks:
+                    document.add_heading("其他程式邏輯", level=2)
+                    document.add_paragraph(
+                        "以下為模組中沒有封裝成函式/類別的程式碼（例如執行入口、模組層級設定）。"
+                    )
+                    for i, block in enumerate(module.code_blocks, 1):
+                        self._add_code_block(document, block, index=i)
+        
+        
         document.add_page_break()
+
+    def _add_code_block(self, document: Document, block: CodeBlockInfo, index: int) -> None:
+            document.add_heading(
+                f"區塊 {index}（第 {block.line_start}-{block.line_end} 行）", level=3
+            )
+            description = self._get_description(None, block.extra)
+            document.add_paragraph(description)
+            #self._add_code_paragraph(document, block.source_code)
+    
+    def _add_code_paragraph(self, document: Document, code: str) -> None:
+        """用等寬字型呈現一段原始碼，跟一般說明文字做出區隔"""
+        paragraph = document.add_paragraph()
+        run = paragraph.add_run(code)
+        run.font.name = "Courier New"
+        run.font.size = Pt(9)
 
     def _add_class_block(self, document: Document, cls: ClassInfo) -> None:
         heading_text = cls.name
@@ -140,12 +163,12 @@ class RequirementsSpecGenerator(BaseGenerator):
     def _get_description(self, docstring: Optional[str], extra: dict) -> str:
         """
         取得要顯示的說明文字。
-        目前只讀 docstring；預留 llm_explanation 的讀取優先權，
-        之後接上 LLM 產生說明時，把下面這行的判斷打開即可：
-
-            if "llm_explanation" in extra:
-                return extra["llm_explanation"]
+        優先權：LLM 生成的說明 > 原始 docstring > 「無說明」。
+        LLM 的說明放在 extra["llm_explanation"]（由 core/llm_enhancer.py 寫入）。
         """
+        if extra and "llm_explanation" in extra:
+            return extra["llm_explanation"]
         if docstring:
             return docstring
         return "（無說明）"
+    
