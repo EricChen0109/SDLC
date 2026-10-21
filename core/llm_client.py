@@ -66,7 +66,7 @@ class GeminiLLMClient(BaseLLMClient):
         return response.text
     """
 
-    def __init__(self, model: str = "antigravity", api_key: str = None):
+    def __init__(self, model: str = "gemini-3.5-flash-lite", api_key: str = None):
         self.model = model
         self.api_key = api_key or os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
