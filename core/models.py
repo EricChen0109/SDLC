@@ -80,7 +80,7 @@ class ImportInfo:
     module: str                              # 例如 "os.path"、"typing"
     names: List[str] = field(default_factory=list)  # from X import a, b -> ["a", "b"]；直接 import X 則為空
     alias: Optional[str] = None              # import X as Y -> "Y"
-
+    level: int = 0
 
 @dataclass
 class CodeBlockInfo:

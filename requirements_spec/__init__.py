@@ -20,4 +20,5 @@ def get_feature() -> Feature:
         display_name="需求規格文件（技術規格）",
         analyzer=PythonAstAnalyzer(),
         generator=RequirementsSpecGenerator(),
+        use_llm=False
     )

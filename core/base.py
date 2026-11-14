@@ -61,3 +61,4 @@ class Feature:
     display_name: str
     analyzer: BaseAnalyzer
     generator: BaseGenerator
+    use_llm: bool = False

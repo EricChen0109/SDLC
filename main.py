@@ -23,6 +23,7 @@ from typing import List
 from core.base import Feature
 from core.llm_enhancer import enhance_with_llm
 from core.source_loader import get_source_loader
+from architecture_diagram import get_feature as get_architecture_diagram_feature
 
 # ============================================================
 # 功能註冊清單（手動註冊）
@@ -102,7 +103,9 @@ def run_feature(
         # 理解沒有結構化的程式碼區塊），把下面這行的註解拿掉即可。
         # 記得先在 core/llm_client.py 設定好要用哪家供應商、並設定對應的 API key。
         #analysis_result = enhance_with_llm(analysis_result)
-
+        if feature.use_llm:
+            analysis_result = enhance_with_llm(analysis_result)
+            
         output_path = os.path.join(output_dir, f"{feature.key}.docx")
         actual_path = feature.generator.generate(analysis_result, output_path)
 
