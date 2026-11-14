@@ -23,7 +23,6 @@ from typing import List
 from core.base import Feature
 from core.llm_enhancer import enhance_with_llm
 from core.source_loader import get_source_loader
-from architecture_diagram import get_feature as get_architecture_diagram_feature
 
 # ============================================================
 # 功能註冊清單（手動註冊）
