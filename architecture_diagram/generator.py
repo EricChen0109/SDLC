@@ -11,8 +11,9 @@ architecture_diagram/generator.py
 import io
 from collections import defaultdict
 from typing import Dict, List
-
+import os
 from docx import Document
+from docx.document import Document as DocumentType
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Inches, Pt
 
@@ -27,7 +28,10 @@ from core.models import AnalysisResult
 
 # 放進 docx 的圖片，高度最多佔幾英吋（再高會超出一頁，Word 會把圖片裁掉）
 MAX_IMAGE_HEIGHT_INCHES = 8.0
-
+# 是否把圖片另外存成 PNG 檔（跟 docx 放在同一個輸出資料夾）。不需要的話改成 False
+SAVE_IMAGES_TO_OUTPUT = True
+DEPENDENCY_IMAGE_NAME = "architecture_dependency_diagram.png"
+INHERITANCE_IMAGE_NAME = "architecture_inheritance_diagram.png"
 
 class ArchitectureDiagramGenerator(BaseGenerator):
     def generate(self, analysis_result: AnalysisResult, output_path: str) -> str:
@@ -36,17 +40,18 @@ class ArchitectureDiagramGenerator(BaseGenerator):
             raise ValueError(
                 "分析結果裡找不到架構圖資料，請確認這個 Generator 搭配的是 ArchitectureAnalyzer"
             )
-
+            
+        output_dir = os.path.dirname(output_path)
         document = Document()
         self._add_title_page(document, analysis_result)
-        self._add_dependency_section(document, graph)
-        self._add_inheritance_section(document, graph)
+        self._add_dependency_section(document, graph, output_dir)
+        self._add_inheritance_section(document, graph, output_dir)
         document.save(output_path)
         return output_path
 
     # ---------- 標題頁 ----------
 
-    def _add_title_page(self, document: Document, analysis_result: AnalysisResult) -> None:
+    def _add_title_page(self, document: DocumentType, analysis_result: AnalysisResult) -> None:
         title = document.add_heading("系統架構圖", level=0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -61,7 +66,7 @@ class ArchitectureDiagramGenerator(BaseGenerator):
 
     # ---------- 模組依賴圖 ----------
 
-    def _add_dependency_section(self, document: Document, graph: ArchitectureGraph) -> None:
+    def _add_dependency_section(self, document: DocumentType, graph: ArchitectureGraph, output_dir: str) -> None:
         document.add_heading("模組依賴圖", level=1)
         document.add_paragraph(
             f"共 {len(graph.modules)} 個檔案，偵測到 {len(graph.dependencies)} 條專案內部的依賴關係。"
@@ -73,7 +78,7 @@ class ArchitectureDiagramGenerator(BaseGenerator):
         if image is None:
             document.add_paragraph("（專案內部沒有偵測到檔案之間的依賴關係，因此沒有產生圖片。）")
         else:
-            self._add_picture(document, image)
+            self._add_picture(document, image, os.path.join(output_dir, DEPENDENCY_IMAGE_NAME))
 
         document.add_heading("循環依賴", level=2)
         if graph.cycles:
@@ -90,7 +95,7 @@ class ArchitectureDiagramGenerator(BaseGenerator):
         self._add_dependency_table(document, graph)
         document.add_page_break()
 
-    def _add_dependency_table(self, document: Document, graph: ArchitectureGraph) -> None:
+    def _add_dependency_table(self, document: DocumentType, graph: ArchitectureGraph) -> None:
         depends_on: Dict[str, List[str]] = defaultdict(list)
         depended_by_count: Dict[str, int] = defaultdict(int)
         for source, target in graph.dependencies:
@@ -112,7 +117,7 @@ class ArchitectureDiagramGenerator(BaseGenerator):
 
     # ---------- 類別繼承圖 ----------
 
-    def _add_inheritance_section(self, document: Document, graph: ArchitectureGraph) -> None:
+    def _add_inheritance_section(self, document: DocumentType, graph: ArchitectureGraph, output_dir: str) -> None:
         document.add_heading("類別繼承圖", level=1)
 
         if not graph.inheritances:
@@ -132,7 +137,7 @@ class ArchitectureDiagramGenerator(BaseGenerator):
             graph.class_labels, graph.class_files, graph.inheritances
         )
         if image is not None:
-            self._add_picture(document, image)
+            self._add_picture(document, image, os.path.join(output_dir, INHERITANCE_IMAGE_NAME))
 
         document.add_heading("繼承明細", level=2)
         table = document.add_table(rows=1, cols=3)
@@ -149,9 +154,17 @@ class ArchitectureDiagramGenerator(BaseGenerator):
 
     # ---------- 共用 ----------
 
-    def _add_picture(self, document: Document, image: RenderedImage) -> None:
+    def _add_picture(self, document: DocumentType, image: RenderedImage, save_path: str) -> None:
+        png_bytes, aspect_ratio = image
+        if SAVE_IMAGES_TO_OUTPUT:
+            with open(save_path, "wb") as f:
+                f.write(png_bytes)
+        section = document.sections[-1]
         png_bytes, aspect_ratio = image
         section = document.sections[-1]
+        assert section.page_width is not None
+        assert section.left_margin is not None
+        assert section.right_margin is not None
         max_width = section.page_width - section.left_margin - section.right_margin
         max_width_by_height = int(Inches(MAX_IMAGE_HEIGHT_INCHES) * aspect_ratio)
         document.add_picture(io.BytesIO(png_bytes), width=min(max_width, max_width_by_height))
