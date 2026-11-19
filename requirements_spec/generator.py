@@ -20,7 +20,7 @@ from typing import List, Optional
 from docx import Document
 from docx.enum.text import WD_ALIGN_PARAGRAPH
 from docx.shared import Pt
-
+from docx.document import Document as DocumentType
 from core.base import BaseGenerator
 from core.models import AnalysisResult, ClassInfo, CodeBlockInfo,FunctionInfo, ModuleInfo
 
@@ -41,7 +41,7 @@ class RequirementsSpecGenerator(BaseGenerator):
 
     # ---------- 以下為內部排版邏輯 ----------
 
-    def _add_title_page(self, document: Document, analysis_result: AnalysisResult) -> None:
+    def _add_title_page(self, document: DocumentType, analysis_result: AnalysisResult) -> None:
         title = document.add_heading("技術規格文件", level=0)
         title.alignment = WD_ALIGN_PARAGRAPH.CENTER
 
@@ -54,7 +54,7 @@ class RequirementsSpecGenerator(BaseGenerator):
         document.add_paragraph(f"共分析 {len(analysis_result.modules)} 個檔案")
         document.add_page_break()
 
-    def _add_module_section(self, document: Document, module: ModuleInfo) -> None:
+    def _add_module_section(self, document: DocumentType, module: ModuleInfo) -> None:
         document.add_heading(module.file_path, level=1)
         document.add_paragraph(f"行數：{module.line_count}")
 
@@ -93,7 +93,7 @@ class RequirementsSpecGenerator(BaseGenerator):
         
         document.add_page_break()
 
-    def _add_code_block(self, document: Document, block: CodeBlockInfo, index: int) -> None:
+    def _add_code_block(self, document:DocumentType, block: CodeBlockInfo, index: int) -> None:
             document.add_heading(
                 f"區塊 {index}（第 {block.line_start}-{block.line_end} 行）", level=3
             )
@@ -101,14 +101,14 @@ class RequirementsSpecGenerator(BaseGenerator):
             document.add_paragraph(description)
             #self._add_code_paragraph(document, block.source_code)
     
-    def _add_code_paragraph(self, document: Document, code: str) -> None:
+    def _add_code_paragraph(self, document: DocumentType, code: str) -> None:
         """用等寬字型呈現一段原始碼，跟一般說明文字做出區隔"""
         paragraph = document.add_paragraph()
         run = paragraph.add_run(code)
         run.font.name = "Courier New"
         run.font.size = Pt(9)
 
-    def _add_class_block(self, document: Document, cls: ClassInfo) -> None:
+    def _add_class_block(self, document: DocumentType, cls: ClassInfo) -> None:
         heading_text = cls.name
         if cls.bases:
             heading_text += f"（繼承自 {', '.join(cls.bases)}）"
@@ -124,7 +124,7 @@ class RequirementsSpecGenerator(BaseGenerator):
             document.add_paragraph("（此類別沒有方法）")
 
     def _add_function_block(
-        self, document: Document, func: FunctionInfo, heading_level: int
+        self, document: DocumentType, func: FunctionInfo, heading_level: int
     ) -> None:
         prefix = "async " if func.is_async else ""
         signature = f"{prefix}{func.name}({self._format_parameters(func)})"
@@ -143,7 +143,7 @@ class RequirementsSpecGenerator(BaseGenerator):
         if func.parameters:
             self._add_parameters_table(document, func)
 
-    def _add_parameters_table(self, document: Document, func: FunctionInfo) -> None:
+    def _add_parameters_table(self, document: DocumentType, func: FunctionInfo) -> None:
         table = document.add_table(rows=1, cols=3)
         table.style = "Light Grid Accent 1"
         header_cells = table.rows[0].cells
