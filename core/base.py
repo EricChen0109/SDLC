@@ -17,8 +17,7 @@ core/base.py
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from typing import List
-
+from typing import List,Callable, List, Optional
 from core.models import AnalysisResult
 
 
@@ -61,4 +60,4 @@ class Feature:
     display_name: str
     analyzer: BaseAnalyzer
     generator: BaseGenerator
-    use_llm: bool = False
+    llm_enhancer: Optional[Callable[[AnalysisResult], AnalysisResult]] = None

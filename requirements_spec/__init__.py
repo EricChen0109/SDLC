@@ -12,7 +12,7 @@ main.py 不需要知道 PythonAstAnalyzer、RequirementsSpecGenerator
 from core.base import Feature
 from requirements_spec.analyzer import PythonAstAnalyzer
 from requirements_spec.generator import RequirementsSpecGenerator
-
+from core.llm_enhancer import enhance_with_llm 
 
 def get_feature() -> Feature:
     return Feature(
@@ -20,5 +20,5 @@ def get_feature() -> Feature:
         display_name="需求規格文件（技術規格）",
         analyzer=PythonAstAnalyzer(),
         generator=RequirementsSpecGenerator(),
-        use_llm=False
+        llm_enhancer=enhance_with_llm,
     )

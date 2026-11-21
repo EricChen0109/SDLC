@@ -37,12 +37,13 @@ from core.source_loader import get_source_loader
 # ============================================================
 from requirements_spec import get_feature as get_requirements_spec_feature
 from architecture_diagram import get_feature as get_architecture_diagram_feature
+from test_doc import get_feature as get_test_doc_feature
 
 REGISTERED_FEATURES: List[Feature] = [
     get_requirements_spec_feature(),
     # 未來新增功能，依照上面說明，在這裡加一行 ↓↓↓
     get_architecture_diagram_feature(),
-    # get_test_doc_feature(),
+    get_test_doc_feature(),
 ]
 
 
@@ -101,9 +102,8 @@ def run_feature(
         # 要啟用 LLM 補充說明（補上沒寫 docstring 的函式/類別說明、
         # 理解沒有結構化的程式碼區塊），把下面這行的註解拿掉即可。
         # 記得先在 core/llm_client.py 設定好要用哪家供應商、並設定對應的 API key。
-        #analysis_result = enhance_with_llm(analysis_result)
-        if feature.use_llm:
-            analysis_result = enhance_with_llm(analysis_result)
+        #if feature.llm_enhancer is not None:
+        #    analysis_result = feature.llm_enhancer(analysis_result)
             
         output_path = os.path.join(output_dir, f"{feature.key}.docx")
         actual_path = feature.generator.generate(analysis_result, output_path)
